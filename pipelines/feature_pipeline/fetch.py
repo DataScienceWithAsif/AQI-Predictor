@@ -211,7 +211,7 @@ def append_row_to_csv(row: dict, path: str = "day2_feature_pipeline_log.csv") ->
 
 
 def main():
-    CITY_NAME = "Lahore,PK"
+    CITY_NAME = "Islamabad,PK"
     config = get_config()
     logger.info(f"Fetching feature row for {CITY_NAME}...")
  
