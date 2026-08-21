@@ -144,7 +144,11 @@ def compute_features(raw_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     # group_keys=True (the default) attaches 'city' back as an outer index
     # level, giving us a (city, timestamp) MultiIndex on the result.
-    processed = df.groupby("city").apply(_compute_features_single_city)
+    # include_groups=False: the per-group function no longer needs 'city'
+    # itself (it's restored from the group key below), so exclude it from
+    # what each group receives — silences a pandas FutureWarning and is
+    # also just the correct semantics here.
+    processed = df.groupby("city").apply(_compute_features_single_city, include_groups=False)
     processed.index = processed.index.set_names(["city", "timestamp"])
 
     feature_cols = [
