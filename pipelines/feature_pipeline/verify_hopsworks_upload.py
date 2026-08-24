@@ -41,8 +41,8 @@ def main():
     # placeholder (id=None) if its existence check doesn't resolve cleanly on
     # a pure read. fs.get_feature_group() always fetches real server metadata
     # for something that should already exist, and fails loudly if it doesn't.
-    features_fg = fs.get_feature_group(name="aqi_features", version=1)
-    targets_fg = fs.get_feature_group(name="aqi_targets", version=1)
+    features_fg = fs.get_feature_group(name="aqi_features", version=hopsworks_io.DEFAULT_FEATURE_GROUP_VERSION)
+    targets_fg = fs.get_feature_group(name="aqi_targets", version=hopsworks_io.DEFAULT_FEATURE_GROUP_VERSION)
 
     logger.info("Reading aqi_features back from Hopsworks (can take a minute)...")
     features_df = features_fg.read()

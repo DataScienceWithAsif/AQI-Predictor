@@ -1,5 +1,5 @@
 """
-feature_pipeline/hopsworks_io.py
+feature_pipeline/hopsworks_io2.py
 
 Shared helpers for connecting to the Hopsworks Feature Store and
 getting/creating the two feature groups used by this project:
@@ -15,9 +15,8 @@ now avoids a confusing "why are there real values in my target column at
 inference time" bug later, and matches how Hopsworks Feature Views expect
 inputs and labels to be joined from separate feature groups.
 
-Used by backfill.py (Day 4), the training pipeline (Day 5, which needs the
-Model Registry too — hence connect_project() below), and later by the
-hourly pipeline (Day 7).
+Used by backfill.py (Day 4), and later by the hourly pipeline (Day 7) and
+the training pipeline (Day 5).
 """
 
 import os
@@ -25,54 +24,18 @@ import logging
 
 import pandas as pd
 import hopsworks
-from hopsworks.project import Project
 from hsfs.feature_store import FeatureStore
 from hsfs.feature_group import FeatureGroup
 
 logger = logging.getLogger("feature_pipeline.hopsworks_io")
 
-# Single source of truth for which feature group version is "current" —
-# read this from callers (train.py, verify_hopsworks_upload.py) instead of
-# hardcoding a version number, so bumping this in one place can't silently
-# desync from what other scripts try to read.
-#
-# NOTE: stayed on version 1 deliberately — it's the version that actually
-# has real, verified backfilled data (2,184 rows, confirmed via
-# verify_hopsworks_upload.py). A version bump to 2 (with time_travel_format=
-# "DELTA") was tried but never actually backfilled, so version 2 doesn't
-# exist server-side. If you deliberately want DELTA format later, you'd
-# need to re-run backfill.py to actually create + populate version 2 —
-# just changing this constant doesn't do that on its own.
-DEFAULT_FEATURE_GROUP_VERSION = 1
 
-
-def _resolve_cert_folder() -> str:
-    """
-    Hopsworks' Python client defaults to /tmp for certificates, which is invalid
-    on Windows. The official login contract accepts a custom cert_folder, so we
-    override it explicitly to a Windows-safe path before the client tries to
-    materialize TLS certs.
-    """
-    cert_folder = os.environ.get("HOPSWORKS_CERT_FOLDER")
-    if cert_folder and not cert_folder.startswith("/"):
-        os.makedirs(cert_folder, exist_ok=True)
-        return cert_folder
-
-    if os.name == "nt":
-        cert_folder = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Temp", "hopsworks-certs")
-        os.makedirs(cert_folder, exist_ok=True)
-        os.environ["HOPSWORKS_CERT_FOLDER"] = cert_folder
-        return cert_folder
-
-    return "/tmp/hopsworks-certs"
-
-
-def connect_project() -> Project:
+def connect_project():
     """
     Connects to Hopsworks using HOPSWORKS_API_KEY (and optionally
-    HOPSWORKS_PROJECT/HOST/PORT) from the environment, and returns the raw
-    Project object — use this when you need more than just the Feature
-    Store (e.g. the training pipeline also needs project.get_model_registry()).
+    HOPSWORKS_PROJECT) from the environment, and returns the raw Project
+    object — use this when you need more than just the Feature Store (e.g.
+    the training pipeline also needs project.get_model_registry()).
     """
     api_key = os.environ.get("HOPSWORKS_API_KEY")
     if not api_key:
@@ -80,25 +43,11 @@ def connect_project() -> Project:
             "HOPSWORKS_API_KEY is not set. Copy .env.example to .env, "
             "paste your key (Hopsworks -> your profile icon -> Settings -> "
             "API Keys -> New API Key), and make sure load_dotenv() has run "
-            "before calling connect_project()."
+            "before calling connect()."
         )
-
-    host = os.environ.get("HOPSWORKS_HOST", "eu-west.cloud.hopsworks.ai")
-    port = int(os.environ.get("HOPSWORKS_PORT", "443"))
-    project_name = os.environ.get("HOPSWORKS_PROJECT")
-    cert_folder = _resolve_cert_folder()
-
-    logger.info(
-        "Connecting to Hopsworks host=%s port=%s project=%s cert_folder=%s",
-        host, port, project_name, cert_folder,
-    )
     project = hopsworks.login(
-        host=host,
-        port=port,
-        project=project_name,
         api_key_value=api_key,
-        cert_folder=cert_folder,
-        hostname_verification=False,
+        project=os.environ.get("HOPSWORKS_PROJECT"),  # optional; None = your default project
     )
     logger.info(f"Connected to Hopsworks project: {project.name}")
     return project
@@ -109,7 +58,7 @@ def connect() -> FeatureStore:
     return connect_project().get_feature_store()
 
 
-def get_features_feature_group(fs: FeatureStore, version: int = DEFAULT_FEATURE_GROUP_VERSION) -> FeatureGroup:
+def get_features_feature_group(fs: FeatureStore, version: int = 1) -> FeatureGroup:
     return fs.get_or_create_feature_group(
         name="aqi_features",
         version=version,
@@ -120,11 +69,10 @@ def get_features_feature_group(fs: FeatureStore, version: int = DEFAULT_FEATURE_
         primary_key=["city", "timestamp"],
         event_time="timestamp",
         online_enabled=False,  # batch-only is enough for an hourly/daily pipeline
-        time_travel_format="DELTA",  # supported by the server and now installed in this environment
     )
 
 
-def get_targets_feature_group(fs: FeatureStore, version: int = DEFAULT_FEATURE_GROUP_VERSION) -> FeatureGroup:
+def get_targets_feature_group(fs: FeatureStore, version: int = 1) -> FeatureGroup:
     return fs.get_or_create_feature_group(
         name="aqi_targets",
         version=version,
@@ -136,7 +84,6 @@ def get_targets_feature_group(fs: FeatureStore, version: int = DEFAULT_FEATURE_G
         primary_key=["city", "timestamp"],
         event_time="timestamp",
         online_enabled=False,
-        time_travel_format="DELTA",
     )
 
 
