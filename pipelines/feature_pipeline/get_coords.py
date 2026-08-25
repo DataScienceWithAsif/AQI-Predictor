@@ -1,22 +1,36 @@
+"""
+feature_pipeline/geocoding.py
+
+Shared free geocoding helper (Open-Meteo, no API key) — used by both
+backfill.py and fetch.py so multi-city support doesn't require looking up
+lat/lon by hand for every city, and isn't duplicated across scripts.
+"""
+
+import logging
+
 import requests
-import os
-from dotenv import load_dotenv
-load_dotenv()
 
-open_weather_api_key = os.getenv("OPENWEATHER_KEY")
+logger = logging.getLogger("feature_pipeline.geocoding")
+
+REQUEST_TIMEOUT_SECONDS = 30
 
 
-def geocode_city(city_name, api_key):
-    url = "http://api.openweathermap.org/geo/1.0/direct"
-    params = {"q": city_name, "limit": 1, "appid": api_key}
-    resp = requests.get(url, params=params)
+def geocode_city(city_name: str) -> tuple:
+    """
+    Resolves a city name to (lat, lon) via Open-Meteo's free geocoding API.
+    """
+    resp = requests.get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        params={"name": city_name, "count": 1},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     resp.raise_for_status()
-    data = resp.json()
-    if not data:
-        raise ValueError(f"No location found for '{city_name}'. Try a different format, e.g. 'City,CountryCode'.")
-    return data[0]["lat"], data[0]["lon"], data[0]["name"], data[0]["country"]
-
-if __name__ == "__main__":
-    CITY_NAME = "Lahore,PK" 
-    lat, lon, resolved_name, country = geocode_city(CITY_NAME, open_weather_api_key)
-    print(f"Resolved: {resolved_name}, {country}  ->  lat={lat}, lon={lon}")
+    results = resp.json().get("results")
+    if not results:
+        raise ValueError(f"Geocoding found no match for city name: '{city_name}'")
+    match = results[0]
+    logger.info(
+        f"Geocoded '{city_name}' -> {match['name']}, {match.get('country', '?')} "
+        f"(lat={match['latitude']}, lon={match['longitude']})"
+    )
+    return match["latitude"], match["longitude"]

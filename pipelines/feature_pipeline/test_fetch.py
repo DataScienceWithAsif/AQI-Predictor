@@ -9,6 +9,7 @@ Run with:
 from unittest.mock import patch, MagicMock
 
 import requests
+import pandas as pd
 import fetch  # feature_pipeline/fetch.py
 
 
@@ -105,8 +106,68 @@ def test_build_feature_row_raises_on_bad_aqicn_status(mock_get):
         print(f"PASS: build_feature_row correctly raises RuntimeError on bad AQICN status -> {e}")
 
 
+@patch("fetch.geocode_city")
+def test_get_cities_config_uses_cities_env_when_set(mock_geocode):
+    mock_geocode.side_effect = [(31.5, 74.3), (24.9, 67.0)]
+    with patch.dict("os.environ", {"CITIES": "Lahore, Karachi"}):
+        configs = fetch.get_cities_config()
+
+    assert len(configs) == 2
+    assert configs[0] == {"city_name": "Lahore", "lat": 31.5, "lon": 74.3}
+    assert configs[1] == {"city_name": "Karachi", "lat": 24.9, "lon": 67.0}
+    print("PASS: get_cities_config() parses CITIES and geocodes each name")
+
+
+def test_get_cities_config_falls_back_to_single_city():
+    with patch.dict("os.environ", {"CITY_NAME": "Islamabad", "LAT": "33.6", "LON": "73.0"}, clear=False):
+        # Ensure CITIES isn't accidentally set from a prior test/env
+        os_environ_backup = dict(__import__("os").environ)
+        import os as _os
+        _os.environ.pop("CITIES", None)
+        configs = fetch.get_cities_config()
+
+    assert configs == [{"city_name": "Islamabad", "lat": 33.6, "lon": 73.0}]
+    print("PASS: get_cities_config() falls back to single CITY_NAME/LAT/LON when CITIES isn't set")
+
+
+@patch("fetch.build_feature_row")
+def test_main_saves_successful_cities_even_if_one_fails(mock_build_row, tmp_path, monkeypatch):
+    """The important behavior from this conversation: one city's station
+    being down should not cost you the other cities' data for that hour,
+    but the run should still end in failure so it stays visible."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENWEATHER_KEY", "fake")
+    monkeypatch.setenv("AQICN_TOKEN", "fake")
+    monkeypatch.setenv("CITIES", "Lahore,Karachi,Islamabad")
+    monkeypatch.delenv("CITY_NAME", raising=False)
+
+    def fake_build_row(city, lat, lon, openweather_key, aqicn_token):
+        if city == "Karachi":
+            raise RuntimeError("simulated AQICN station outage")
+        return {"timestamp": "2026-08-24T00:00:00", "city": city, "aqi": 100}
+
+    mock_build_row.side_effect = fake_build_row
+
+    with patch("fetch.geocode_city", return_value=(0.0, 0.0)):
+        try:
+            fetch.main()
+            raise AssertionError("Expected RuntimeError since one city failed")
+        except RuntimeError as e:
+            assert "Karachi" in str(e)
+
+    csv_path = tmp_path / "day2_feature_pipeline_log.csv"
+    assert csv_path.exists(), "Successful cities' rows should still be saved despite the one failure"
+    saved = pd.read_csv(csv_path)
+    assert set(saved["city"]) == {"Lahore", "Islamabad"}
+    assert "Karachi" not in set(saved["city"])
+    print("PASS: Lahore/Islamabad rows saved despite Karachi failing; run still raised (visible failure)")
+
+
 if __name__ == "__main__":
     test_build_feature_row_happy_path()
     test_build_feature_row_raises_on_network_failure()
     test_build_feature_row_raises_on_bad_aqicn_status()
+    test_get_cities_config_uses_cities_env_when_set()
+    test_get_cities_config_falls_back_to_single_city()
+    print("\n(Run test_main_saves_successful_cities_even_if_one_fails via pytest — it needs tmp_path/monkeypatch fixtures)")
     print("\nAll Day 2 sanity tests passed.")

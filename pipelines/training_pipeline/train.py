@@ -23,10 +23,11 @@ import joblib
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import RidgeCV
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 # feature_pipeline is a sibling directory of training_pipeline — adjust this
@@ -40,7 +41,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("training_pipeline.train")
 
-FEATURE_COLUMNS = [
+NUMERIC_FEATURE_COLUMNS = [
     "temp", "humidity", "pressure", "wind_speed",
     "pm25", "pm10", "co", "no2", "so2", "o3", "aqi",
     "hour", "day_of_week", "month", "is_weekend",
@@ -50,6 +51,12 @@ FEATURE_COLUMNS = [
     "aqi_roll_mean_24h", "aqi_roll_std_24h",
     "pm25_roll_mean_24h", "pm25_roll_std_24h",
 ]
+CATEGORICAL_FEATURE_COLUMNS = ["city"]
+# 'city' matters now that backfill.py can pull multiple cities: without it,
+# the model has no way to tell Lahore's baseline AQI from Islamabad's, and
+# mixing cities together would look like unexplained noise rather than a
+# real, learnable signal.
+FEATURE_COLUMNS = NUMERIC_FEATURE_COLUMNS + CATEGORICAL_FEATURE_COLUMNS
 TARGET_COLUMNS = ["aqi_avg_next_1d", "aqi_avg_next_2d", "aqi_avg_next_3d"]
 
 TEST_SIZE_DAYS = 14  # last 14 CALENDAR DAYS held out — never split mid-day
@@ -64,8 +71,8 @@ def load_merged_data(fs) -> pd.DataFrame:
     """Reads aqi_features/aqi_targets from Hopsworks and joins them on
     (city, timestamp) — the same read pattern verify_hopsworks_upload.py
     already proved works against your real project."""
-    features_fg = fs.get_feature_group(name="aqi_features", version=hopsworks_io.DEFAULT_FEATURE_GROUP_VERSION)
-    targets_fg = fs.get_feature_group(name="aqi_targets", version=hopsworks_io.DEFAULT_FEATURE_GROUP_VERSION)
+    features_fg = fs.get_feature_group(name="aqi_features", version=3)
+    targets_fg = fs.get_feature_group(name="aqi_targets", version=3)
 
     logger.info("Reading aqi_features...")
     features_df = features_fg.read()
@@ -140,6 +147,20 @@ def naive_persistence_baseline(test_df: pd.DataFrame, target_col: str) -> dict:
     return compute_metrics(clean[target_col], clean["aqi_roll_mean_24h"])
 
 
+def _build_preprocessor() -> ColumnTransformer:
+    """
+    Scales numeric features and one-hot encodes 'city' — shared by both
+    models so a multi-city dataset is handled identically for each.
+    handle_unknown='ignore' means a city the model never saw in training
+    (e.g. if you add a 6th city later without retraining) won't crash
+    prediction, it'll just get an all-zero city encoding.
+    """
+    return ColumnTransformer([
+        ("numeric", StandardScaler(), NUMERIC_FEATURE_COLUMNS),
+        ("city", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURE_COLUMNS),
+    ])
+
+
 def train_and_evaluate_horizon(train_df: pd.DataFrame, test_df: pd.DataFrame, target_col: str) -> dict:
     """Trains Ridge and Random Forest for one horizon, evaluates both on
     the held-out test days, and returns everything needed to pick and
@@ -157,16 +178,28 @@ def train_and_evaluate_horizon(train_df: pd.DataFrame, test_df: pd.DataFrame, ta
             f"(train={len(X_train)}, test={len(X_test)}) — check your date range/backfill size."
         )
 
+    n_cities = X_train["city"].nunique()
+    logger.info(f"[{target_col}] Training on {n_cities} cit{'y' if n_cities == 1 else 'ies'}: "
+                f"{sorted(X_train['city'].unique())}")
+
     ridge = Pipeline([
-        ("scaler", StandardScaler()),
-        ("ridge", Ridge(alpha=.5, random_state=42)),
+        ("preprocess", _build_preprocessor()),
+        ("ridge", RidgeCV(alphas=np.logspace(-2, 3, 20))),
     ])
     ridge.fit(X_train, y_train)
     ridge_metrics = compute_metrics(y_test, ridge.predict(X_test))
 
-    rf = RandomForestRegressor(
-        n_estimators=300, max_depth=10, min_samples_leaf=3, random_state=42, n_jobs=-1
-    )
+    rf = Pipeline([
+        ("preprocess", _build_preprocessor()),
+        ("rf", RandomForestRegressor(
+            n_estimators=100,
+            max_depth=5,
+            min_samples_leaf=10,
+            max_features="sqrt",
+            random_state=42,
+            n_jobs=-1,
+        )),
+    ])
     rf.fit(X_train, y_train)
     rf_metrics = compute_metrics(y_test, rf.predict(X_test))
 

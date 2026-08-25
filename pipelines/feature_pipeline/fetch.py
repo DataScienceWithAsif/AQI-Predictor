@@ -25,6 +25,7 @@ import requests
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
 from get_coords import geocode_city
 
 # --------------------------------------------------------------------------
@@ -32,7 +33,6 @@ from get_coords import geocode_city
 # --------------------------------------------------------------------------
 
 load_dotenv()  # reads .env in the current working directory, if present
-open_weather_api_key = os.getenv("OPENWEATHER_KEY")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,8 +43,38 @@ logger = logging.getLogger("feature_pipeline.fetch")
 REQUIRED_ENV_VARS = ["OPENWEATHER_KEY", "AQICN_TOKEN"]
 
 
+def get_cities_config() -> list:
+    """
+    Returns a list of {"city_name", "lat", "lon"} dicts to fetch this run.
+
+    Supports CITIES (comma-separated names, auto-geocoded via Open-Meteo —
+    same pattern as backfill.py) which takes priority if set, or falls back
+    to the original single CITY_NAME/LAT/LON for backward compatibility.
+    """
+    cities_env = os.environ.get("CITIES")
+    if cities_env:
+        names = [c.strip() for c in cities_env.split(",") if c.strip()]
+        configs = []
+        for name in names:
+            lat, lon = geocode_city(name)
+            configs.append({"city_name": name, "lat": lat, "lon": lon})
+        return configs
+
+    missing = [v for v in ["CITY_NAME", "LAT", "LON"] if not os.environ.get(v)]
+    if missing:
+        raise EnvironmentError(
+            f"Neither CITIES nor CITY_NAME/LAT/LON are fully set (missing: {missing}). "
+            f"Copy .env.example to .env and fill in your city config."
+        )
+    return [{
+        "city_name": os.environ["CITY_NAME"],
+        "lat": float(os.environ["LAT"]),
+        "lon": float(os.environ["LON"]),
+    }]
+
+
 def get_config() -> dict:
-    """Load and validate required config from environment variables."""
+    """Load and validate the required API-key environment variables."""
     missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
     if missing:
         raise EnvironmentError(
@@ -53,7 +83,7 @@ def get_config() -> dict:
         )
     return {
         "openweather_key": os.environ["OPENWEATHER_KEY"],
-        "aqicn_token": os.environ["AQICN_TOKEN"]
+        "aqicn_token": os.environ["AQICN_TOKEN"],
     }
 
 
@@ -77,7 +107,7 @@ def _session_with_retries() -> requests.Session:
 
 
 SESSION = _session_with_retries()
-TIMEOUT_SECONDS = 100  # never let an hourly cron job hang forever on a stuck request
+TIMEOUT_SECONDS = 10  # never let an hourly cron job hang forever on a stuck request
 
 
 # --------------------------------------------------------------------------
@@ -211,23 +241,39 @@ def append_row_to_csv(row: dict, path: str = "day2_feature_pipeline_log.csv") ->
 
 
 def main():
-    CITY_NAME = "Islamabad,PK"
     config = get_config()
-    logger.info(f"Fetching feature row for {CITY_NAME}...")
- 
-    lat, lon, resolved_name, country = geocode_city(CITY_NAME, open_weather_api_key)
+    cities = get_cities_config()
+    logger.info(f"Fetching feature rows for {len(cities)} cit{'y' if len(cities) == 1 else 'ies'}: "
+                f"{[c['city_name'] for c in cities]}")
 
-    row = build_feature_row(
-        city=resolved_name,
-        lat=lat,
-        lon=lon,
-        openweather_key=config["openweather_key"],
-        aqicn_token=config["aqicn_token"],
-    )
+    rows = []
+    failed_cities = []
+    for city_cfg in cities:
+        try:
+            row = build_feature_row(
+                city=city_cfg["city_name"],
+                lat=city_cfg["lat"],
+                lon=city_cfg["lon"],
+                openweather_key=config["openweather_key"],
+                aqicn_token=config["aqicn_token"],
+            )
+            logger.info(f"[{city_cfg['city_name']}] {row}")
+            rows.append(row)
+        except RuntimeError as e:
+            # One city's station/API being down shouldn't cost you the
+            # other cities' data for this hour — log it, keep going, and
+            # still save whatever succeeded. The run still ends with a
+            # non-zero exit (below) so a partial failure stays VISIBLE
+            # (red X in GitHub Actions) instead of silently going unnoticed.
+            logger.error(f"[{city_cfg['city_name']}] failed: {e}")
+            failed_cities.append(city_cfg["city_name"])
 
-    logger.info(f"Row: {row}")
-    append_row_to_csv(row)
-    logger.info("Appended to day2_feature_pipeline_log.csv")
+    for row in rows:
+        append_row_to_csv(row)
+    logger.info(f"Appended {len(rows)}/{len(cities)} row(s) to day2_feature_pipeline_log.csv")
+
+    if failed_cities:
+        raise RuntimeError(f"Failed to fetch for {len(failed_cities)} cit(ies): {failed_cities}")
 
 
 if __name__ == "__main__":

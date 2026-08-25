@@ -36,14 +36,16 @@ logger = logging.getLogger("feature_pipeline.hopsworks_io")
 # hardcoding a version number, so bumping this in one place can't silently
 # desync from what other scripts try to read.
 #
-# NOTE: stayed on version 1 deliberately — it's the version that actually
-# has real, verified backfilled data (2,184 rows, confirmed via
-# verify_hopsworks_upload.py). A version bump to 2 (with time_travel_format=
-# "DELTA") was tried but never actually backfilled, so version 2 doesn't
-# exist server-side. If you deliberately want DELTA format later, you'd
-# need to re-run backfill.py to actually create + populate version 2 —
-# just changing this constant doesn't do that on its own.
-DEFAULT_FEATURE_GROUP_VERSION = 1
+# NOTE: version history —
+#   v1: original single-city (Islamabad only) backfill. Superseded, but
+#       left in place server-side; safe to ignore or delete later.
+#   v2: an abandoned attempt (DELTA format bump) that was never actually
+#       backfilled — exists as an empty/unused feature group if you look
+#       in the Hopsworks UI. Safe to delete whenever convenient.
+#   v3: CURRENT — multi-city backfill (Islamabad, Karachi, Lahore, Multan,
+#       Peshawar), 10,920 rows, verified working with real R²=0.70-0.81
+#       results in train.py.
+DEFAULT_FEATURE_GROUP_VERSION = 3
 
 
 def _resolve_cert_folder() -> str:

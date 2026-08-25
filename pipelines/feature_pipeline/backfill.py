@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 import features  # for RAW_COLUMNS (the raw hourly schema)
 import final_features  # for the hybrid hourly-features + daily-targets computation
 import hopsworks_io
-import get_coords
+from get_coords import geocode_city
 
 load_dotenv()
 
@@ -50,10 +50,26 @@ AIR_QUALITY_BACKFILL_DAYS = 90
 # the most recent days. Staying a week behind "today" avoids that.
 WEATHER_ARCHIVE_LATENCY_DAYS = 6
 
-REQUEST_TIMEOUT_SECONDS = 100
+REQUEST_TIMEOUT_SECONDS = 200
 
 
 def fetch_historical_air_quality(lat: float, lon: float, start: date, end: date) -> pd.DataFrame:
+    days_back = (date.today() - start).days
+    if days_back > AIR_QUALITY_BACKFILL_DAYS + WEATHER_ARCHIVE_LATENCY_DAYS + 2:
+        # The Air Quality API's real, reliable coverage is ~92 days — unlike
+        # the Historical Weather API (which goes back to 1940), it does NOT
+        # extend arbitrarily far back. A window starting further back than
+        # that will typically return empty/null hourly arrays rather than
+        # an error, which would otherwise silently poison your dataset with
+        # unusable rows. Fail loudly here instead.
+        raise ValueError(
+            f"Requested air-quality start date {start} is {days_back} days ago, "
+            f"beyond Open-Meteo's ~92-day supported history for this endpoint. "
+            f"pm2.5/pm10/us_aqi for this range will likely come back empty. "
+            f"Reduce AIR_QUALITY_BACKFILL_DAYS/WEATHER_ARCHIVE_LATENCY_DAYS, or "
+            f"don't try to stitch together a second, older window this way."
+        )
+
     resp = requests.get(
         "https://air-quality-api.open-meteo.com/v1/air-quality",
         params={
@@ -132,24 +148,35 @@ def build_historical_raw_df(
 
 
 def main():
+    # CITIES is a comma-separated list, e.g. "Islamabad,Lahore,Karachi,Peshawar,Multan".
+    # Falls back to the single CITY_NAME/LAT/LON you already have in .env if
+    # CITIES isn't set, so this is backward compatible with your existing setup.
+    cities_env = os.environ.get("CITIES")
+    if cities_env:
+        city_names = [c.strip() for c in cities_env.split(",") if c.strip()]
+        logger.info(f"Backfilling {len(city_names)} cities: {city_names}")
+        raw_dfs = []
+        for city_name in city_names:
+            lat, lon = geocode_city(city_name)
+            raw_dfs.append(build_historical_raw_df(city_name, lat, lon))
+        raw_df = pd.concat(raw_dfs, ignore_index=True)
+    else:
+        city = os.environ["CITY_NAME"]
+        lat = float(os.environ["LAT"])
+        lon = float(os.environ["LON"])
+        raw_df = build_historical_raw_df(city, lat, lon)
 
-    open_weather_api_key = os.environ.get("OPENWEATHER_KEY")
-    city = "Islamabad"
-    lat, lon, resolved_name, country = get_coords.geocode_city(city_name=city, api_key=open_weather_api_key)
-
-    # city = os.environ["CITY_NAME"]
-    # lat = float(os.environ["LAT"])
-    # lon = float(os.environ["LON"])
-
-    raw_df = build_historical_raw_df(city, lat, lon)
+    logger.info(f"Total raw rows across all cities: {len(raw_df)}")
 
     null_fraction = raw_df.drop(columns=["timestamp", "city"]).isna().mean().mean()
-    logger.info(f"Average null fraction across raw columns: {null_fraction:.2%}")
+    logger.info(f"Average null fraction across raw columns (all cities): {null_fraction:.2%}")
     if null_fraction > 0.05:
         logger.warning(
             "More than 5% nulls in the backfilled raw data — double check "
-            "your lat/lon and date range before trusting this for training."
+            "your city names/lat-lon and date range before trusting this for training."
         )
+    per_city_counts = raw_df.groupby("city").size()
+    logger.info(f"Rows per city:\n{per_city_counts.to_string()}")
 
     features_df, targets_df = final_features.compute_features_with_daily_targets(raw_df)
     logger.info(f"Computed features_df shape={features_df.shape}, targets_df shape={targets_df.shape}")
@@ -162,7 +189,7 @@ def main():
     targets_df.to_csv("day4_backfilled_targets.csv", index=False)
     logger.info("Saved local CSV checkpoints (day4_backfilled_*.csv).")
 
-    hopsworks_io.insert_features_and_targets(features_df, targets_df)
+    hopsworks_io.insert_features_and_targets(features_df, targets_df, version=3)
 
     logger.info(
         "Done. Check the Hopsworks UI: Feature Store -> Feature Groups -> "

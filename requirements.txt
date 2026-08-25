@@ -2,6 +2,7 @@ requests
 python-dotenv
 pandas
 numpy
-hopsworks
+hopsworks[python]
 scikit-learn
 joblib
+pytest
