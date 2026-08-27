@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 import requests
 import pandas as pd
 import fetch  # feature_pipeline/fetch.py
+import hopsworks_io  # feature_pipeline/hopsworks_io.py
 
 
 FAKE_WEATHER_RESPONSE = {
@@ -163,11 +164,80 @@ def test_main_saves_successful_cities_even_if_one_fails(mock_build_row, tmp_path
     print("PASS: Lahore/Islamabad rows saved despite Karachi failing; run still raised (visible failure)")
 
 
+@patch("hopsworks_io.insert_raw_hourly")
+@patch("fetch.build_feature_row")
+def test_main_pushes_to_hopsworks_when_api_key_set(mock_build_row, mock_insert_raw, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENWEATHER_KEY", "fake")
+    monkeypatch.setenv("AQICN_TOKEN", "fake")
+    monkeypatch.setenv("HOPSWORKS_API_KEY", "fake-hopsworks-key")
+    monkeypatch.setenv("CITIES", "Lahore,Karachi")
+    monkeypatch.delenv("CITY_NAME", raising=False)
+
+    mock_build_row.side_effect = lambda city, lat, lon, openweather_key, aqicn_token: {
+        "timestamp": "2026-08-24T00:00:00", "city": city, "aqi": 100,
+    }
+
+    with patch("fetch.geocode_city", return_value=(0.0, 0.0)):
+        fetch.main()
+
+    assert mock_insert_raw.called, "insert_raw_hourly should be called when HOPSWORKS_API_KEY is set"
+    pushed_df = mock_insert_raw.call_args[0][0]
+    assert set(pushed_df["city"]) == {"Lahore", "Karachi"}
+    print("PASS: main() pushes fetched rows to Hopsworks (aqi_raw_hourly) when HOPSWORKS_API_KEY is set")
+
+
+@patch("hopsworks_io.insert_raw_hourly")
+@patch("fetch.build_feature_row")
+def test_main_skips_hopsworks_push_without_api_key(mock_build_row, mock_insert_raw, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENWEATHER_KEY", "fake")
+    monkeypatch.setenv("AQICN_TOKEN", "fake")
+    monkeypatch.delenv("HOPSWORKS_API_KEY", raising=False)
+    monkeypatch.setenv("CITIES", "Lahore")
+    monkeypatch.delenv("CITY_NAME", raising=False)
+
+    mock_build_row.return_value = {"timestamp": "2026-08-24T00:00:00", "city": "Lahore", "aqi": 100}
+
+    with patch("fetch.geocode_city", return_value=(0.0, 0.0)):
+        fetch.main()  # should complete without raising
+
+    assert not mock_insert_raw.called, "insert_raw_hourly should NOT be called without HOPSWORKS_API_KEY"
+    assert (tmp_path / "day2_feature_pipeline_log.csv").exists(), "local CSV should still be written"
+    print("PASS: main() skips the Hopsworks push (local-only run) when HOPSWORKS_API_KEY is unset")
+
+
+@patch("hopsworks_io.insert_raw_hourly")
+@patch("fetch.build_feature_row")
+def test_main_raises_but_keeps_local_csv_if_hopsworks_push_fails(mock_build_row, mock_insert_raw, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENWEATHER_KEY", "fake")
+    monkeypatch.setenv("AQICN_TOKEN", "fake")
+    monkeypatch.setenv("HOPSWORKS_API_KEY", "fake-hopsworks-key")
+    monkeypatch.setenv("CITIES", "Lahore")
+    monkeypatch.delenv("CITY_NAME", raising=False)
+
+    mock_build_row.return_value = {"timestamp": "2026-08-24T00:00:00", "city": "Lahore", "aqi": 100}
+    mock_insert_raw.side_effect = RuntimeError("simulated Hopsworks outage")
+
+    with patch("fetch.geocode_city", return_value=(0.0, 0.0)):
+        try:
+            fetch.main()
+            raise AssertionError("Expected RuntimeError since the Hopsworks push failed")
+        except RuntimeError as e:
+            assert "Hopsworks" in str(e)
+
+    assert (tmp_path / "day2_feature_pipeline_log.csv").exists(), (
+        "local CSV should be saved even if the downstream Hopsworks push fails"
+    )
+    print("PASS: a Hopsworks push failure still raises (visible in Actions) without losing the local CSV")
+
+
 if __name__ == "__main__":
     test_build_feature_row_happy_path()
     test_build_feature_row_raises_on_network_failure()
     test_build_feature_row_raises_on_bad_aqicn_status()
     test_get_cities_config_uses_cities_env_when_set()
     test_get_cities_config_falls_back_to_single_city()
-    print("\n(Run test_main_saves_successful_cities_even_if_one_fails via pytest — it needs tmp_path/monkeypatch fixtures)")
+    print("\n(Run the remaining tests via pytest — they need tmp_path/monkeypatch fixtures)")
     print("\nAll Day 2 sanity tests passed.")

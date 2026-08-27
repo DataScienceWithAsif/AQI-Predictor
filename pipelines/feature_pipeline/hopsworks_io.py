@@ -142,6 +142,37 @@ def get_targets_feature_group(fs: FeatureStore, version: int = DEFAULT_FEATURE_G
     )
 
 
+def get_raw_hourly_feature_group(fs: FeatureStore, version: int = 1) -> FeatureGroup:
+    """
+    A THIRD feature group, distinct from aqi_features/aqi_targets: stores
+    raw live readings (AQICN + OpenWeather current APIs) exactly as
+    fetch.py's hourly job collects them, with no lag/rolling engineering
+    applied.
+
+    Why this exists as its own feature group rather than feeding straight
+    into aqi_features: fetch.py's hourly job only ever has ONE fresh hour
+    of live data — there's no way to compute aqi_lag_24h or a 24h rolling
+    mean from a single row. aqi_features/aqi_targets are instead refreshed
+    daily by re-running backfill.py (which pulls enough trailing history
+    from Open-Meteo to compute those properly). This raw feed exists for
+    live monitoring / a "current AQI right now" display (Day 8), and as
+    a foundation you could extend later into full incremental feature
+    engineering if you want to go beyond this project's 10-day scope.
+    """
+    return fs.get_or_create_feature_group(
+        name="aqi_raw_hourly",
+        version=version,
+        description=(
+            "Raw live hourly readings (AQICN + OpenWeather current APIs), per city, "
+            "exactly as collected — no lag/rolling features applied. Used for live "
+            "monitoring, not directly for model training (see aqi_features/aqi_targets)."
+        ),
+        primary_key=["city", "timestamp"],
+        event_time="timestamp",
+        online_enabled=True,  # a live dashboard wants fast point-lookups of the latest row
+    )
+
+
 def prepare_for_hopsworks(df: pd.DataFrame, timestamp_col: str = "timestamp") -> pd.DataFrame:
     """
     Hopsworks/Hive columns behave most predictably with timezone-naive
@@ -173,3 +204,17 @@ def insert_features_and_targets(
 
     logger.info(f"Inserting {len(targets_df)} rows into aqi_targets...")
     targets_fg.insert(targets_df)
+
+
+def insert_raw_hourly(raw_df: pd.DataFrame) -> None:
+    """
+    Connects and upserts fetch.py's live hourly rows into aqi_raw_hourly.
+    Safe to call every hour indefinitely — insert()'s default upsert
+    behavior means re-running for the same (city, timestamp) just
+    overwrites in place rather than duplicating.
+    """
+    fs = connect()
+    raw_fg = get_raw_hourly_feature_group(fs)
+    raw_df = prepare_for_hopsworks(raw_df)
+    logger.info(f"Inserting {len(raw_df)} row(s) into aqi_raw_hourly...")
+    raw_fg.insert(raw_df)

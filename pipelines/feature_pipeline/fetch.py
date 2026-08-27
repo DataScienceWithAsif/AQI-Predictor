@@ -22,11 +22,12 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+import pandas as pd
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from get_coords import geocode_city
+from geocoding import geocode_city
 
 # --------------------------------------------------------------------------
 # Setup
@@ -271,6 +272,27 @@ def main():
     for row in rows:
         append_row_to_csv(row)
     logger.info(f"Appended {len(rows)}/{len(cities)} row(s) to day2_feature_pipeline_log.csv")
+
+    # Push to Hopsworks if credentials are available — gated rather than
+    # required, so this script still works standalone for local testing
+    # without needing a real Hopsworks project set up (matches how it was
+    # originally used on Day 2, before Day 7's automation needed it).
+    if rows and os.environ.get("HOPSWORKS_API_KEY"):
+        import sys
+        sys.path.append(str(Path(__file__).resolve().parent))
+        import hopsworks_io
+
+        rows_df = pd.DataFrame(rows)
+        try:
+            hopsworks_io.insert_raw_hourly(rows_df)
+        except Exception as e:
+            # A Hopsworks outage/hiccup shouldn't be indistinguishable from
+            # a data-fetch failure — log it clearly, but still don't lose
+            # the rows we already saved locally above.
+            logger.error(f"Failed to push rows to Hopsworks aqi_raw_hourly: {e}")
+            failed_cities.append("(Hopsworks insert)")
+    elif rows:
+        logger.info("HOPSWORKS_API_KEY not set — skipping Hopsworks push (local-only run).")
 
     if failed_cities:
         raise RuntimeError(f"Failed to fetch for {len(failed_cities)} cit(ies): {failed_cities}")

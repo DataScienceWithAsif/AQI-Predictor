@@ -1,0 +1,69 @@
+# .github/workflows/training_pipeline.yml
+#
+# Runs daily: first re-runs feature_pipeline/backfill.py, then
+# training_pipeline/train.py.
+#
+# Why backfill.py runs again here (not just once on Day 4): Open-Meteo's
+# archive extends forward by ~1 day every day, so re-running it daily
+# naturally keeps aqi_features/aqi_targets current — no separate
+# incremental-feature-engineering code needed. insert() upserts by
+# (city, timestamp), so this only ever adds the new day's rows / updates
+# existing ones in place, never duplicates.
+#
+# All cron schedules on GitHub Actions run in UTC. 02:00 UTC = 07:00 PKT.
+
+name: Daily Training Pipeline
+
+"on":
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC daily
+  workflow_dispatch: {}
+
+concurrency:
+  group: training-pipeline
+  cancel-in-progress: false
+
+jobs:
+  refresh_and_train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # backfill (5 cities) + training + SHAP can take several minutes
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Refresh feature store (re-run backfill for a fresh rolling window)
+        working-directory: pipelines/feature_pipeline
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          HOPSWORKS_PROJECT: "AQI_Features"
+          CITIES: "Islamabad,Karachi,Lahore,Multan,Peshawar"
+        run: python backfill.py
+
+      - name: Train models + SHAP + register to Model Registry
+        working-directory: pipelines/training_pipeline
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          HOPSWORKS_PROJECT: "AQI_Features"
+        run: python train.py
+
+      - name: Upload model comparison + SHAP plots as build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-results-${{ github.run_id }}
+          path: |
+            pipelines/training_pipeline/day6_model_comparison.csv
+            pipelines/training_pipeline/day6_shap_plots/
+          retention-days: 30
+          if-no-files-found: ignore

@@ -6,3 +6,6 @@ hopsworks[python]
 scikit-learn
 joblib
 pytest
+xgboost
+shap
+matplotlib

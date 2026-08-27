@@ -113,6 +113,45 @@ def check_no_leakage() -> CheckResult:
     return CheckResult("no target columns leaked into features", PASS)
 
 
+def check_all_cities_present(merged: pd.DataFrame, test_df: pd.DataFrame) -> CheckResult:
+    """Catches a city silently dropping out of live collection (API outage,
+    a bad city name, a quota issue) before it reaches the metrics below —
+    a missing city won't lower the aggregate R^2, it'll just vanish."""
+    if "city" not in merged.columns:
+        return CheckResult("all cities present in test window", WARN, "no 'city' column found")
+    all_cities = set(merged["city"].unique())
+    test_cities = set(test_df["city"].unique())
+    missing = all_cities - test_cities
+    if missing:
+        return CheckResult("all cities present in test window", FAIL,
+                            f"missing from test window: {sorted(missing)}")
+    return CheckResult("all cities present in test window", PASS,
+                        f"{len(test_cities)} cities: {sorted(test_cities)}")
+
+
+def check_per_city_metrics(model, test_clean: pd.DataFrame, target_col: str,
+                            r2_floor: float, strict: bool, min_rows: int) -> list:
+    """Aggregate R^2 across pooled cities can hide one city the model fits
+    poorly — a city with more predictable AQI can carry the average while
+    another city's predictions are close to useless. This breaks metrics
+    out per city so that failure mode can't hide."""
+    if "city" not in test_clean.columns:
+        return [CheckResult("per-city fit", WARN, "no 'city' column found — skipped")]
+
+    results = []
+    for city, group in test_clean.groupby("city"):
+        if len(group) < min_rows:
+            results.append(CheckResult(f"[{city}] per-city fit", WARN,
+                                        f"only {len(group)} test rows, skipping"))
+            continue
+        preds = model.predict(group[FEATURE_COLUMNS])
+        m = compute_metrics(group[target_col], preds)
+        status = PASS if m["r2"] >= r2_floor else (FAIL if strict else WARN)
+        results.append(CheckResult(f"[{city}] per-city fit", status,
+                                    f"R^2={m['r2']:.3f} RMSE={m['rmse']:.2f} (n={len(group)})"))
+    return results
+
+
 def check_pm25_sensitivity(model, X_test: pd.DataFrame, bump: float = 25.0,
                             sample_size: int = 200, seed: int = 42) -> CheckResult:
     """pm25 is one of the strongest known AQI drivers. Raising it while
@@ -157,25 +196,24 @@ def load_model_for_target(target_col: str):
 
 
 def run_checks_for_horizon(target_col: str, test_clean: pd.DataFrame, r2_floor: float,
-                            strict: bool) -> list:
+                            strict: bool, min_city_rows: int) -> list:
     model = load_model_for_target(target_col)
     X_test = test_clean[FEATURE_COLUMNS]
     y_test = test_clean[target_col]
 
     preds = model.predict(X_test)
     metrics = compute_metrics(y_test, preds)
-    print(f"R2 : {metrics['r2']}")
-    print(f"RMSE: {metrics['rmse']}")
-    print(f"MAE: {metrics['mae']}")
     baseline_metrics = naive_persistence_baseline(test_clean, target_col)
 
-    return [
+    results = [
         check_finite_and_bounded(preds),
         check_beats_baseline(metrics, baseline_metrics),
         check_r2_floor(metrics, r2_floor, strict),
         check_pm25_sensitivity(model, X_test),
         check_deterministic(model, X_test),
     ]
+    results.extend(check_per_city_metrics(model, test_clean, target_col, r2_floor, strict, min_city_rows))
+    return results
 
 
 def main():
@@ -184,6 +222,8 @@ def main():
                          help="Fail (not just warn) when R^2 is below --r2-floor.")
     parser.add_argument("--r2-floor", type=float, default=-0.5,
                          help="R^2 below this is flagged (default: -0.5).")
+    parser.add_argument("--min-city-rows", type=int, default=10,
+                         help="Skip per-city R^2 check for cities with fewer test rows than this (default: 10).")
     args = parser.parse_args()
 
     project = hopsworks_io.connect_project()
@@ -198,6 +238,10 @@ def main():
     print(leakage_result)
     overall_pass &= leakage_result.status != FAIL
 
+    cities_result = check_all_cities_present(merged, test_df)
+    print(cities_result)
+    overall_pass &= cities_result.status != FAIL
+
     for target_col in TARGET_COLUMNS:
         cols_needed = FEATURE_COLUMNS + [target_col]
         test_clean = test_df.dropna(subset=cols_needed)
@@ -208,7 +252,8 @@ def main():
             overall_pass = False
             continue
 
-        for result in run_checks_for_horizon(target_col, test_clean, args.r2_floor, args.strict):
+        for result in run_checks_for_horizon(target_col, test_clean, args.r2_floor, args.strict,
+                                              args.min_city_rows):
             print(result)
             if result.status == FAIL:
                 overall_pass = False

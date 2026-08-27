@@ -1,0 +1,65 @@
+# .github/workflows/feature_pipeline.yml
+#
+# Runs feature_pipeline/fetch.py every hour: fetches live current AQI +
+# weather for every city in CITIES, and pushes the raw readings into the
+# Hopsworks `aqi_raw_hourly` feature group (upserted by city+timestamp, so
+# re-runs never duplicate rows).
+#
+# NOTE: this does NOT feed aqi_features/aqi_targets (the ones train.py
+# actually trains on) — that's refreshed daily by training_pipeline.yml,
+# which re-runs backfill.py first. See hopsworks_io.py's
+# get_raw_hourly_feature_group() docstring for why they're kept separate.
+#
+# All cron schedules on GitHub Actions run in UTC, not your local time —
+# double-check crontab.guru's UTC conversion if you change this.
+
+name: Hourly Feature Pipeline
+
+"on":
+  schedule:
+    - cron: "0 * * * *"  # every hour, on the hour, UTC
+  workflow_dispatch: {}   # adds a "Run workflow" button in the Actions tab for manual testing
+
+concurrency:
+  group: feature-pipeline
+  cancel-in-progress: false  # let an in-flight run finish rather than killing it mid-write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run hourly fetch
+        working-directory: pipelines/feature_pipeline
+        env:
+          OPENWEATHER_KEY: ${{ secrets.OPENWEATHER_KEY }}
+          AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          HOPSWORKS_PROJECT: "AQI_Features"
+          # Comma-separated list — edit here to add/remove cities without
+          # touching any Python code.
+          CITIES: "Islamabad,Karachi,Lahore,Multan,Peshawar"
+        run: python fetch.py
+
+      - name: Upload local log as a build artifact
+        if: always()  # keep the log even if the run above failed partway through
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-pipeline-log-${{ github.run_id }}
+          path: pipelines/feature_pipeline/day2_feature_pipeline_log.csv
+          retention-days: 14
+          if-no-files-found: ignore
