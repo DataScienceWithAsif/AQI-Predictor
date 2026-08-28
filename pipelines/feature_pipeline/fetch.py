@@ -161,14 +161,23 @@ def fetch_weather(lat: float, lon: float, api_key: str) -> Optional[dict]:
         return None
 
 
-def fetch_aqi(city_or_station: str, token: str) -> Optional[dict]:
+def fetch_aqi(lat: float, lon: float, token: str) -> Optional[dict]:
     """
-    Calls the AQICN feed API for a city/station and returns the standard
-    0-500 US-EPA-style AQI plus dominant pollutant. Returns None on failure.
+    Calls the AQICN geo-localized feed API and returns the standard 0-500
+    US-EPA-style AQI from the nearest station, plus dominant pollutant.
+
+    Uses lat/lon (geo:{lat};{lng}) rather than a city name string — AQICN's
+    name-based /feed/{city}/ endpoint only works if the exact string
+    matches one of their station slugs, which isn't reliable (e.g. it
+    returned "Unknown station" for a real city, Multan, in production).
+    Geo-lookup finds the nearest real station regardless of naming, and
+    works uniformly for every city without needing per-city special-casing.
+
+    Returns None on failure.
     """
     try:
         resp = SESSION.get(
-            f"https://api.waqi.info/feed/{city_or_station}/",
+            f"https://api.waqi.info/feed/geo:{lat};{lon}/",
             params={"token": token},
             timeout=TIMEOUT_SECONDS,
         )
@@ -211,7 +220,7 @@ def build_feature_row(
     row full of nulls into the feature store.
     """
     weather = fetch_weather(lat, lon, openweather_key)
-    aqi_data = fetch_aqi(city, aqicn_token)
+    aqi_data = fetch_aqi(lat, lon, aqicn_token)
 
     if weather is None or aqi_data is None:
         raise RuntimeError(

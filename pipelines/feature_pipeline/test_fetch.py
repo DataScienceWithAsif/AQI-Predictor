@@ -233,6 +233,27 @@ def test_main_raises_but_keeps_local_csv_if_hopsworks_push_fails(mock_build_row,
     print("PASS: a Hopsworks push failure still raises (visible in Actions) without losing the local CSV")
 
 
+@patch("fetch.SESSION.get")
+def test_fetch_aqi_uses_geo_lookup_not_city_name(mock_get):
+    """Regression test for a real production failure: AQICN's name-based
+    endpoint returned 'Unknown station' for Multan even though it's a real
+    city with real air quality stations nearby. Confirms fetch_aqi queries
+    by lat/lon (geo:...) rather than by name string, and that it correctly
+    succeeds using only coordinates — no city name involved at all."""
+    mock_get.return_value = _mock_response(FAKE_AQICN_RESPONSE)
+
+    result = fetch.fetch_aqi(lat=30.1978, lon=71.4784, token="fake")  # Multan's coordinates
+
+    assert result is not None
+    assert result["aqi"] == 152
+    called_url = mock_get.call_args[0][0]
+    assert called_url.startswith("https://api.waqi.info/feed/geo:"), (
+        f"Expected a geo: URL, got: {called_url}"
+    )
+    assert "30.1978" in called_url and "71.4784" in called_url
+    print(f"PASS: fetch_aqi queries by coordinates ({called_url}), immune to city-name mismatches")
+
+
 if __name__ == "__main__":
     test_build_feature_row_happy_path()
     test_build_feature_row_raises_on_network_failure()
