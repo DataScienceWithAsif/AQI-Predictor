@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from geocoding import geocode_city
+from get_coords import geocode_city
 
 # --------------------------------------------------------------------------
 # Setup
