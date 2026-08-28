@@ -9,3 +9,5 @@ pytest
 xgboost
 shap
 matplotlib
+streamlit
+plotly
