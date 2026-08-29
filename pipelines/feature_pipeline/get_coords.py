@@ -12,8 +12,7 @@ import requests
 
 logger = logging.getLogger("feature_pipeline.geocoding")
 
-REQUEST_TIMEOUT_SECONDS = 30
-
+REQUEST_TIMEOUT_SECONDS = 100
 
 def geocode_city(city_name: str) -> tuple:
     """
