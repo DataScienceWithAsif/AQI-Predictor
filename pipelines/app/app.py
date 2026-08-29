@@ -29,8 +29,6 @@ import plotly.graph_objects as go
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "feature_pipeline"))
 import hopsworks_io  # noqa: E402
-from dotenv import load_dotenv
-load_dotenv()
 
 # Must stay in sync with training_pipeline/train.py's FEATURE_COLUMNS —
 # duplicated here (rather than importing train.py) so the app doesn't need
@@ -85,6 +83,18 @@ def categorize(aqi) -> tuple:
     return ("Unknown", "#999999", "\u26AA")
 
 
+def badge_html(label: str, color: str, text_color: str = "#ffffff") -> str:
+    """Renders a solid-color pill badge as inline HTML — used everywhere a
+    plain-text category label was previously the only visual cue. Pure
+    function (just string formatting), safe to unit test independent of
+    whether it actually renders correctly in a browser."""
+    return (
+        f'<span style="background-color:{color}; color:{text_color}; '
+        f'padding:3px 12px; border-radius:12px; font-weight:600; '
+        f'font-size:0.85em; white-space:nowrap;">{label}</span>'
+    )
+
+
 def is_hazardous(*aqi_values) -> bool:
     """True if ANY of the given AQI values meets/exceeds HAZARD_THRESHOLD.
     Ignores None/NaN values rather than erroring on missing data."""
@@ -137,6 +147,7 @@ def load_models() -> dict:
             "pipeline": pipeline,
             "version": hw_model.version,
             "metrics": hw_model.training_metrics,
+            "description": hw_model.description or "",
         }
     return models
 
@@ -183,6 +194,7 @@ def main():
     st.set_page_config(page_title="AQI Predictor", page_icon="\U0001F32B", layout="centered")
     st.title("\U0001F32B AQI Predictor")
     st.caption("3-day average AQI forecast for major Pakistani cities")
+    st.caption(f"Dashboard loaded: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
     city = st.selectbox("City", CITIES)
 
@@ -218,10 +230,12 @@ def main():
 
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.metric("AQI right now", f"{current_aqi:.0f}", label)
+            st.metric("AQI right now", f"{current_aqi:.0f}")
+            st.markdown(badge_html(label, color), unsafe_allow_html=True)
         with col2:
+            freshness_note = "just now" if age_minutes < 1 else f"{age_minutes} minute(s) ago"
             st.markdown(
-                f"{emoji} **{label}** — as of {age_minutes} minute(s) ago "
+                f"As of {freshness_note} "
                 f"({current_ts.strftime('%Y-%m-%d %H:%M UTC')})"
             )
     else:
@@ -249,9 +263,11 @@ def main():
     for col, target_col in zip(cols, TARGET_COLUMNS):
         pred = predictions[target_col]
         label, color, emoji = categorize(pred)
+        forecast_date = feature_timestamp + pd.Timedelta(days=int(target_col[-2]))
         with col:
             st.metric(HORIZON_LABELS[target_col], f"{pred:.0f}")
-            st.markdown(f"{emoji} {label}")
+            st.caption(forecast_date.strftime("%a, %b %d"))
+            st.markdown(badge_html(label, color), unsafe_allow_html=True)
 
     # --- Trend chart ---
     chart_x = ["Last known"] + [HORIZON_LABELS[t] for t in TARGET_COLUMNS]
@@ -268,6 +284,13 @@ def main():
         fig.add_hrect(y0=lo, y1=hi, fillcolor=color, opacity=0.08, line_width=0)
     fig.update_layout(yaxis_title="AQI", height=350, margin=dict(t=20, b=20), showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
+
+    # --- AQI scale legend ---
+    with st.expander("AQI scale reference"):
+        legend_html = " &nbsp; ".join(
+            badge_html(f"{lo}\u2013{hi} {label}", color) for lo, hi, label, color, _ in AQI_CATEGORIES
+        )
+        st.markdown(legend_html, unsafe_allow_html=True)
 
     # --- Transparency footer ---
     with st.expander("About these predictions"):
@@ -287,6 +310,21 @@ Models used for this forecast:
 - AQI categories follow the US EPA 0–500 scale.
             """
         )
+
+    # --- What drives this prediction (SHAP, computed at training time) ---
+    with st.expander("What drives this prediction?"):
+        any_shown = False
+        for t in TARGET_COLUMNS:
+            description = models[t].get("description", "")
+            if "Top SHAP features" in description:
+                shap_part = description.split("Top SHAP features:", 1)[1].strip().rstrip(".")
+                st.markdown(f"**{HORIZON_LABELS[t]}**: {shap_part}")
+                any_shown = True
+        if not any_shown:
+            st.caption(
+                "SHAP feature-importance data isn't available for the currently "
+                "registered models yet — re-run training_pipeline/train.py to generate it."
+            )
 
 
 if __name__ == "__main__":

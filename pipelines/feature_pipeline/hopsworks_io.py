@@ -22,14 +22,43 @@ hourly pipeline (Day 7).
 
 import os
 import logging
+from pathlib import Path
 
 import pandas as pd
 import hopsworks
 from hopsworks.project import Project
 from hsfs.feature_store import FeatureStore
 from hsfs.feature_group import FeatureGroup
+from dotenv import load_dotenv
 
 logger = logging.getLogger("feature_pipeline.hopsworks_io")
+
+
+def _load_env_file() -> None:
+    """
+    Explicitly locates and loads .env rather than relying on python-dotenv's
+    automatic call-stack-based discovery (find_dotenv()), which behaves
+    unpredictably under non-standard execution contexts — specifically,
+    Streamlit's exec()-based script runner, which broke auto-discovery when
+    app.py imports this module. Tries the most likely locations for this
+    repo's layout, in order, and falls back to python-dotenv's own
+    auto-discovery only if none of them exist (e.g. GitHub Actions, which
+    doesn't use a .env file at all — secrets come in as real env vars).
+    """
+    here = Path(__file__).resolve().parent  # .../pipelines/feature_pipeline
+    candidates = [
+        here / ".env",                 # same folder as this file
+        here.parent / ".env",          # .../pipelines/.env
+        here.parent.parent / ".env",   # repo root/.env — the expected location
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            load_dotenv(dotenv_path=candidate)
+            return
+    load_dotenv()  # last resort: python-dotenv's own auto-discovery
+
+
+_load_env_file()
 
 # Single source of truth for which feature group version is "current" —
 # read this from callers (train.py, verify_hopsworks_upload.py) instead of
