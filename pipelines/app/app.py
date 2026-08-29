@@ -187,16 +187,142 @@ def compute_predictions(models: dict, feature_row: pd.DataFrame) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Design system — dark emerald/teal glassmorphism for structural chrome.
+# NOTE: AQI category hex codes (from categorize()/AQI_CATEGORIES) are never
+# overridden by this palette — they're injected per-value at render time
+# below, so the data itself always keeps its true EPA color meaning.
+# --------------------------------------------------------------------------
+
+CUSTOM_CSS = """
+<style>
+/* ---------- Base app ---------- */
+.stApp {
+    background: radial-gradient(circle at 15% -10%, #123128 0%, #0a1614 55%, #060d0c 100%);
+    color: #e6f4ef;
+}
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0f2b24 0%, #081512 100%);
+    border-right: 1px solid rgba(52, 211, 153, 0.15);
+}
+section[data-testid="stSidebar"] * { 
+    color: #d7f3e8 !important; 
+}
+
+h1, h2, h3, h4 { color: #6ee7b7 !important; font-weight: 700; letter-spacing: -0.02em; }
+hr { border-color: rgba(52, 211, 153, 0.2) !important; }
+
+/* Shrink header */
+[data-testid="stHeader"] {
+    background: rgba(0, 0, 0, 0) !important;
+    height: 2.2rem;
+    min-height: 2.2rem;
+}
+.block-container { padding-top: 0.5rem; padding-bottom: 3rem; }
+
+/* ---------- Sidebar Selectbox Overrides ---------- */
+/* 1. Box container */
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    background-color: rgba(10, 30, 24, 0.95) !important;
+    border: 1px solid rgba(110, 231, 183, 0.4) !important;
+    border-radius: 8px !important;
+}
+
+/* 2. Selected text styling (overrides -webkit-text-fill-color) */
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] *,
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] span,
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] div {
+    color: #7ed130 !important;
+    -webkit-text-fill-color: #7ed130 !important;
+    font-weight: 700 !important;
+}
+
+/* 3. Dropdown arrow icon */
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] div[data-baseweb="select"] svg {
+    fill: #7ed130 !important;
+}
+
+/* 4. Preserve sidebar 'City' label color */
+section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label p {
+    color: #8fd9c4 !important;
+    -webkit-text-fill-color: #8fd9c4 !important;
+    font-weight: 600 !important;
+}
+
+/* ---------- Expanders & Alerts ---------- */
+[data-testid="stExpander"] {
+    background: rgba(16, 60, 48, 0.22);
+    border: 1px solid rgba(110, 231, 183, 0.15);
+    border-radius: 14px;
+}
+[data-testid="stAlert"] {
+    background: rgba(16, 60, 48, 0.25);
+    border: 1px solid rgba(110, 231, 183, 0.2);
+    border-radius: 14px;
+    color: #e6f4ef;
+}
+
+/* ---------- Glass cards ---------- */
+.glass-card {
+    background: rgba(16, 60, 48, 0.35);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(110, 231, 183, 0.18);
+    border-radius: 20px;
+    padding: 1.5rem 1.75rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    margin-bottom: 0.5rem;
+    height: 100%;
+}
+.hero-card { text-align: center; }
+.hero-label {
+    font-size: 0.8rem; letter-spacing: 0.12em; color: #8fd9c4;
+    font-weight: 600; margin-bottom: 0.4rem; text-transform: uppercase;
+}
+.hero-number { font-size: 5.2rem; font-weight: 800; line-height: 1; margin-bottom: 0.7rem; }
+.hero-side { display: flex; flex-direction: column; justify-content: center; }
+.hero-side-title { font-size: 1.4rem; font-weight: 700; color: #e6f4ef; margin-bottom: 0.5rem; }
+.hero-side-sub { font-size: 0.9rem; color: #9fd9c6; line-height: 1.6; }
+
+.section-title { font-size: 1.3rem; font-weight: 700; color: #6ee7b7; margin: 1.8rem 0 0.7rem 0; }
+
+.forecast-card { text-align: center; }
+.forecast-label { font-size: 0.95rem; font-weight: 600; color: #d7f3e8; }
+.forecast-date { font-size: 0.8rem; color: #8fd9c4; margin-bottom: 0.7rem; }
+.forecast-number { font-size: 2.6rem; font-weight: 800; line-height: 1; margin-bottom: 0.7rem; }
+
+.alert-card {
+    background: rgba(255, 30, 30, 0.12);
+    border: 1px solid rgba(255, 90, 90, 0.4);
+    border-radius: 16px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0 1.5rem 0;
+    color: #ffe4e4;
+    font-size: 0.98rem;
+}
+</style>
+"""
+
+
+# --------------------------------------------------------------------------
 # UI (only runs when this file is executed by `streamlit run`)
 # --------------------------------------------------------------------------
 
 def main():
-    st.set_page_config(page_title="AQI Predictor", page_icon="\U0001F32B", layout="centered")
-    st.title("\U0001F32B AQI Predictor")
-    st.caption("3-day average AQI forecast for major Pakistani cities")
-    st.caption(f"Dashboard loaded: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    st.set_page_config(page_title="AQI Predictor", page_icon="\U0001F32B", layout="wide")
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    city = st.selectbox("City", CITIES)
+    # --- Sidebar: city selector + About ---
+    with st.sidebar:
+        st.markdown("### \U0001F32B AQI Predictor")
+        city = st.selectbox("City", CITIES)
+        st.divider()
+        st.markdown("#### About")
+        st.caption(
+            "3-day average AQI forecasts for major Pakistani cities, powered by a "
+            "live Hopsworks feature store and daily-retrained ML models "
+            "(Ridge / Random Forest / XGBoost, whichever performs best per horizon)."
+        )
+        st.caption(f"Dashboard loaded: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
 
     with st.spinner("Loading models and latest data..."):
         models = load_models()
@@ -217,8 +343,9 @@ def main():
     feature_timestamp = feature_row["timestamp"].iloc[0]
     predictions = compute_predictions(models, feature_row)
 
-    # --- Current AQI (live) ---
-    st.subheader("Current AQI")
+    st.markdown(f"# \U0001F32B {city}")
+
+    # --- Hero: current AQI ---
     current_aqi = None
     if not city_raw.empty:
         current_aqi = float(city_raw["aqi"].iloc[0])
@@ -227,16 +354,35 @@ def main():
             current_ts = current_ts.tz_localize("UTC")
         label, color, emoji = categorize(current_aqi)
         age_minutes = int((datetime.now(timezone.utc) - current_ts).total_seconds() // 60)
+        freshness_note = "just now" if age_minutes < 1 else f"{age_minutes} minute(s) ago"
 
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.metric("AQI right now", f"{current_aqi:.0f}")
-            st.markdown(badge_html(label, color), unsafe_allow_html=True)
-        with col2:
-            freshness_note = "just now" if age_minutes < 1 else f"{age_minutes} minute(s) ago"
+        hero_col1, hero_col2 = st.columns([1.2, 2])
+        with hero_col1:
             st.markdown(
-                f"As of {freshness_note} "
-                f"({current_ts.strftime('%Y-%m-%d %H:%M UTC')})"
+                f"""
+                <div class="glass-card hero-card">
+                    <div class="hero-label">Current AQI</div>
+                    <div class="hero-number" style="color:{color};">{current_aqi:.0f}</div>
+                    {badge_html(label, color)}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with hero_col2:
+            st.markdown(
+                f"""
+                <div class="glass-card hero-side">
+                    <div class="hero-side-title">{emoji} {label}</div>
+                    <div class="hero-side-sub">
+                        As of {freshness_note}<br>
+                        {current_ts.strftime('%Y-%m-%d %H:%M UTC')}<br><br>
+                        Live reading, refreshed hourly from a separate feed —
+                        see the forecast note below for how this differs from
+                        the data behind the 3-day predictions.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
     else:
         st.info("No live reading available yet for this city — the hourly pipeline hasn't collected one.")
@@ -245,14 +391,19 @@ def main():
     if is_hazardous(current_aqi, *predictions.values()):
         worst = max([v for v in [current_aqi, *predictions.values()] if v is not None])
         worst_label = categorize(worst)[0]
-        st.error(
-            f"\u26A0\uFE0F **Hazardous air quality alert** — AQI is expected to reach "
-            f"**{worst:.0f}** ({worst_label}) within the next 3 days. "
-            f"Consider limiting outdoor activity."
+        st.markdown(
+            f"""
+            <div class="alert-card">
+                \u26A0\uFE0F <b>Hazardous air quality alert</b> — AQI is expected to reach
+                <b>{worst:.0f}</b> ({worst_label}) within the next 3 days.
+                Consider limiting outdoor activity.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-    # --- 3-day forecast ---
-    st.subheader("3-Day Forecast")
+    # --- 3-day forecast grid ---
+    st.markdown('<div class="section-title">3-Day Forecast</div>', unsafe_allow_html=True)
     st.caption(
         f"Based on the most recent available feature data for {city}, "
         f"as of **{feature_timestamp.strftime('%Y-%m-%d')}** "
@@ -265,11 +416,20 @@ def main():
         label, color, emoji = categorize(pred)
         forecast_date = feature_timestamp + pd.Timedelta(days=int(target_col[-2]))
         with col:
-            st.metric(HORIZON_LABELS[target_col], f"{pred:.0f}")
-            st.caption(forecast_date.strftime("%a, %b %d"))
-            st.markdown(badge_html(label, color), unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="glass-card forecast-card">
+                    <div class="forecast-label">{HORIZON_LABELS[target_col]}</div>
+                    <div class="forecast-date">{forecast_date.strftime('%a, %b %d')}</div>
+                    <div class="forecast-number" style="color:{color};">{pred:.0f}</div>
+                    {badge_html(label, color)}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     # --- Trend chart ---
+    st.markdown('<div class="section-title">Trend</div>', unsafe_allow_html=True)
     chart_x = ["Last known"] + [HORIZON_LABELS[t] for t in TARGET_COLUMNS]
     chart_y = [float(feature_row["aqi"].iloc[0])] + [predictions[t] for t in TARGET_COLUMNS]
     chart_colors = [categorize(y)[1] for y in chart_y]
@@ -277,12 +437,22 @@ def main():
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=chart_x, y=chart_y, mode="lines+markers",
-        line=dict(color="#4a90d9", width=2),
-        marker=dict(size=14, color=chart_colors, line=dict(width=1, color="black")),
+        line=dict(color="#34d399", width=3, shape="spline", smoothing=0.65),
+        marker=dict(size=16, color=chart_colors, line=dict(width=2, color="#0a1614")),
     ))
     for lo, hi, label, color, _ in AQI_CATEGORIES:
-        fig.add_hrect(y0=lo, y1=hi, fillcolor=color, opacity=0.08, line_width=0)
-    fig.update_layout(yaxis_title="AQI", height=350, margin=dict(t=20, b=20), showlegend=False)
+        fig.add_hrect(y0=lo, y1=hi, fillcolor=color, opacity=0.06, line_width=0)
+    fig.update_layout(
+        yaxis_title="AQI",
+        height=380,
+        margin=dict(t=10, b=10, l=10, r=10),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#d9f2ea"),
+        xaxis=dict(showgrid=False, zeroline=False, color="#9fd9c6"),
+        yaxis=dict(showgrid=False, zeroline=False, color="#9fd9c6"),
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     # --- AQI scale legend ---
