@@ -7,7 +7,7 @@ per horizon (1/2/3-day average AQI) in the Hopsworks Model Registry.
 
     1. Fetches (features, targets) from aqi_features / aqi_targets
     2. Splits by CALENDAR DATE (not row) into train/test
-    3. Trains Ridge + Random Forest + XGBoost per horizon, evaluates RMSE/MAE/R^2
+    3. Trains Ridge + Random Forest + XGBoost + MLP neural network per horizon, evaluates RMSE/MAE/R^2
     4. Computes SHAP feature importance for the winning model per horizon
     5. Registers the better model per horizon in the Model Registry
 
@@ -31,6 +31,7 @@ import shap
 from dotenv import load_dotenv
 from sklearn.linear_model import RidgeCV
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.neural_network import MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -172,9 +173,9 @@ def _build_preprocessor() -> ColumnTransformer:
 
 
 def train_and_evaluate_horizon(train_df: pd.DataFrame, test_df: pd.DataFrame, target_col: str) -> dict:
-    """Trains Ridge and Random Forest for one horizon, evaluates both on
+    """Trains four candidate regressors for one horizon, evaluates them on
     the held-out test days, and returns everything needed to pick and
-    register the winner."""
+    register the winner. The MLP is the neural-network/deep-learning candidate."""
     cols_needed = FEATURE_COLUMNS + [target_col]
     train_clean = train_df.dropna(subset=cols_needed)
     test_clean = test_df.dropna(subset=cols_needed)
@@ -229,10 +230,33 @@ def train_and_evaluate_horizon(train_df: pd.DataFrame, test_df: pd.DataFrame, ta
     xgb.fit(X_train, y_train)
     xgb_metrics = compute_metrics(y_test, xgb.predict(X_test))
 
+    # Feed-forward neural network (deep-learning candidate).
+    # The numeric features are already standardized by the shared
+    # ColumnTransformer, which is important for stable MLP optimization.
+    # Two hidden layers make this a multi-layer neural network rather than
+    # a single-layer linear model.
+    mlp = Pipeline([
+        ("preprocess", _build_preprocessor()),
+        ("mlp", MLPRegressor(
+            hidden_layer_sizes=(128, 64),
+            activation="relu",
+            solver="adam",
+            alpha=1e-4,
+            learning_rate_init=1e-3,
+            max_iter=1000,
+            tol=1e-4,
+            early_stopping=False,
+            random_state=42,
+        )),
+    ])
+    mlp.fit(X_train, y_train)
+    mlp_metrics = compute_metrics(y_test, mlp.predict(X_test))
+
     candidates = {
         "ridge": (ridge, ridge_metrics),
         "random_forest": (rf, rf_metrics),
         "xgboost": (xgb, xgb_metrics),
+        "mlp_neural_network": (mlp, mlp_metrics),
     }
     best_name = min(candidates, key=lambda name: candidates[name][1]["rmse"])
     best_model, best_metrics = candidates[best_name]
@@ -253,6 +277,10 @@ def train_and_evaluate_horizon(train_df: pd.DataFrame, test_df: pd.DataFrame, ta
         f"MAE={xgb_metrics['mae']:.2f} R2={xgb_metrics['r2']:.3f}"
     )
     logger.info(
+        f"[{target_col}] MLP NN:       RMSE={mlp_metrics['rmse']:.2f} "
+        f"MAE={mlp_metrics['mae']:.2f} R2={mlp_metrics['r2']:.3f}"
+    )
+    logger.info(
         f"[{target_col}] Naive baseline (persist last 24h avg): "
         f"RMSE={baseline_metrics['rmse']:.2f} MAE={baseline_metrics['mae']:.2f} R2={baseline_metrics['r2']:.3f}"
     )
@@ -268,6 +296,7 @@ def train_and_evaluate_horizon(train_df: pd.DataFrame, test_df: pd.DataFrame, ta
         "ridge_metrics": ridge_metrics,
         "random_forest_metrics": rf_metrics,
         "xgboost_metrics": xgb_metrics,
+        "mlp_metrics": mlp_metrics,
         "baseline_metrics": baseline_metrics,
         "beats_baseline": beats_baseline,
         "best_model_name": best_name,
@@ -388,7 +417,7 @@ def register_model(project, result: dict) -> None:
         metrics=result["best_metrics"],
         description=(
             f"Predicts {target_col} (daily-average AQI) from hourly features. "
-            f"Best of Ridge/RandomForest/XGBoost by test RMSE: {result['best_model_name']}."
+            f"Best of Ridge/RandomForest/XGBoost/MLP by test RMSE: {result['best_model_name']}."
             f"{shap_note}"
         ),
         input_example=result["X_train_sample"],
@@ -433,6 +462,9 @@ def main():
             "xgb_rmse": r["xgboost_metrics"]["rmse"],
             "xgb_mae": r["xgboost_metrics"]["mae"],
             "xgb_r2": r["xgboost_metrics"]["r2"],
+            "mlp_rmse": r["mlp_metrics"]["rmse"],
+            "mlp_mae": r["mlp_metrics"]["mae"],
+            "mlp_r2": r["mlp_metrics"]["r2"],
             "baseline_rmse": r["baseline_metrics"]["rmse"],
             "baseline_mae": r["baseline_metrics"]["mae"],
             "winner": r["best_model_name"],
@@ -441,7 +473,7 @@ def main():
         }
         for r in all_results
     ])
-    print("\n=== Day 5+6 Model Comparison (Ridge vs RandomForest vs XGBoost) ===")
+    print("\n=== Day 5+6 Model Comparison (Ridge vs RandomForest vs XGBoost vs MLP) ===")
     print(summary_df.to_string(index=False))
     summary_df.to_csv("day6_model_comparison.csv", index=False)
     logger.info("Saved day6_model_comparison.csv (use this table directly in your report)")
