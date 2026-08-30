@@ -65,7 +65,7 @@ AQI_CATEGORIES = [
     (201.0, 300.0, "Very Unhealthy", "#8f3f97", "\U0001F7E3"),
     (301.0, 500.0, "Hazardous", "#7e0023", "\U0001F7E4"),
 ]
-HAZARD_THRESHOLD = 150  # "Unhealthy" and above triggers the alert banner
+HAZARD_THRESHOLD = 150.0  # "Unhealthy" and above triggers the alert banner
 
 
 def categorize(aqi) -> tuple:
