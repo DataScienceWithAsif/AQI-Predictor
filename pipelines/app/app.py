@@ -58,12 +58,12 @@ CITIES = ["Islamabad", "Karachi", "Lahore", "Multan", "Peshawar"]
 # --------------------------------------------------------------------------
 
 AQI_CATEGORIES = [
-    (0, 50, "Good", "#00e400", "\U0001F7E2"),
-    (51, 100, "Moderate", "#dddd00", "\U0001F7E1"),
-    (101, 150, "Unhealthy for Sensitive Groups", "#ff7e00", "\U0001F7E0"),
-    (151, 200, "Unhealthy", "#ff0000", "\U0001F534"),
-    (201, 300, "Very Unhealthy", "#8f3f97", "\U0001F7E3"),
-    (301, 500, "Hazardous", "#7e0023", "\U0001F7E4"),
+    (0.0, 50.0, "Good", "#00e400", "\U0001F7E2"),
+    (51.0, 100.0, "Moderate", "#dddd00", "\U0001F7E1"),
+    (101.0, 150.0, "Unhealthy for Sensitive Groups", "#ff7e00", "\U0001F7E0"),
+    (151.0, 200.0, "Unhealthy", "#ff0000", "\U0001F534"),
+    (201.0, 300.0, "Very Unhealthy", "#8f3f97", "\U0001F7E3"),
+    (301.0, 500.0, "Hazardous", "#7e0023", "\U0001F7E4"),
 ]
 HAZARD_THRESHOLD = 150  # "Unhealthy" and above triggers the alert banner
 

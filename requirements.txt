@@ -9,5 +9,6 @@ pytest
 xgboost
 shap
 matplotlib
+seaborn
 streamlit
 plotly

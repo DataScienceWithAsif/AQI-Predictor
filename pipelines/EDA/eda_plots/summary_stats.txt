@@ -1,0 +1,23 @@
+=== Dataset Summary ===
+Date range: 2026-05-21 00:00:00 to 2026-08-23 23:00:00
+Cities: ['Islamabad', 'Karachi', 'Lahore', 'Multan', 'Peshawar']
+Total rows: 11400
+
+AQI summary stats by city:
+            mean   std   min    max
+city                               
+Islamabad  116.0  31.1  61.0  208.0
+Karachi     78.4  10.4  61.0  125.0
+Lahore     148.8  37.7  74.0  364.0
+Multan     141.4  23.3  84.0  226.0
+Peshawar   122.9  28.6  59.0  212.0
+
+Missing values per column:
+aqi_change_rate        15
+aqi_lag_1h             15
+aqi_lag_3h             45
+aqi_lag_24h           360
+aqi_roll_mean_24h      75
+aqi_roll_std_24h       75
+pm25_roll_mean_24h     75
+pm25_roll_std_24h      75
