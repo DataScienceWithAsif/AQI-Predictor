@@ -384,11 +384,11 @@ AQI-Predictor/
 │
 ├── app/
 │   ├── app.py                       # Streamlit dashboard
-│   └── test_app.py
+│  
 │
 ├── eda/
 │   ├── eda.py                       # Exploratory data analysis
-│   └── test_eda.py
+│   
 │
 ├── requirements.txt
 ├── .env.example
@@ -400,7 +400,7 @@ AQI-Predictor/
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.12
+- Python 3.10
 - Free accounts: [Hopsworks Serverless](https://hopsworks.ai), [AQICN](https://aqicn.org/data-platform/token/), [OpenWeather](https://openweathermap.org/api)
 
 ### Setup
