@@ -32,12 +32,12 @@ OUTPUT_DIR = Path("eda_plots")
 WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 AQI_CATEGORIES = [
-    (0, 50, "Good", "#00e400"),
-    (51, 100, "Moderate", "#dddd00"),
-    (101, 150, "Unhealthy for Sensitive Groups", "#ff7e00"),
-    (151, 200, "Unhealthy", "#ff0000"),
-    (201, 300, "Very Unhealthy", "#8f3f97"),
-    (301, 500, "Hazardous", "#7e0023"),
+    (0.0, 51.0, "Good", "#00e400"),
+    (51, 101.0, "Moderate", "#dddd00"),
+    (101, 151.0, "Unhealthy for Sensitive Groups", "#ff7e00"),
+    (151, 201.0, "Unhealthy", "#ff0000"),
+    (201, 301.0, "Very Unhealthy", "#8f3f97"),
+    (301, 501.0, "Hazardous", "#7e0023"),
 ]
 CORRELATION_COLUMNS = [
     "temp", "humidity", "pressure", "wind_speed",
