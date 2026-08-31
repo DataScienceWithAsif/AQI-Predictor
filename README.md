@@ -6,7 +6,7 @@
 
 **Predicting the average AQI for the next 3 days across 5 major Pakistani cities, with a fully automated feature pipeline, daily model retraining, SHAP-explained predictions, and a live public dashboard.**
 
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-Live%20App-FF4B4B?logo=streamlit&logoColor=white)](https://aqi-predictor-with-asif021.streamlit.app)
 [![Hopsworks](https://img.shields.io/badge/Hopsworks-Feature%20Store-1EB182?logo=hopsworks&logoColor=white)](https://hopsworks.ai)
 [![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)](.github/workflows)
@@ -172,6 +172,15 @@ Run `python eda/eda.py` to regenerate all charts against live data:
 - `summary_stats.txt` — full numeric summary
 
 </details>
+
+<img width="1500" height="900" alt="aqi_category_distribution" src="https://github.com/user-attachments/assets/df2c08aa-f80b-4fff-af32-4bac1bbc7750" />
+<img width="1350" height="900" alt="city_comparison_boxplot" src="https://github.com/user-attachments/assets/bab0f5ad-e574-44d4-8ae1-252fd052ba3c" />
+<img width="1350" height="1050" alt="correlation_heatmap" src="https://github.com/user-attachments/assets/201a2e4f-8693-4033-ac4d-547c87dc4695" />
+<img width="1500" height="900" alt="diurnal_pattern" src="https://github.com/user-attachments/assets/99aaf219-49dc-4db1-8c02-3df9c835dee4" />
+<img width="1800" height="900" alt="trend_over_time" src="https://github.com/user-attachments/assets/f6037a4d-7333-45e7-bb7c-a1fafd7e3a53" />
+<img width="1350" height="900" alt="weekday_pattern" src="https://github.com/user-attachments/assets/e9e7026e-fd2f-4ada-bb39-5fd9363bdb7a" />
+
+
 
 ---
 
