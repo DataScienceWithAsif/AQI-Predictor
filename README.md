@@ -173,6 +173,7 @@ Run `python eda/eda.py` to regenerate all charts against live data:
 
 </details>
 
+---
 <img width="1500" height="900" alt="aqi_category_distribution" src="https://github.com/user-attachments/assets/df2c08aa-f80b-4fff-af32-4bac1bbc7750" />
 <img width="1350" height="900" alt="city_comparison_boxplot" src="https://github.com/user-attachments/assets/bab0f5ad-e574-44d4-8ae1-252fd052ba3c" />
 <img width="1350" height="1050" alt="correlation_heatmap" src="https://github.com/user-attachments/assets/201a2e4f-8693-4033-ac4d-547c87dc4695" />
@@ -181,8 +182,6 @@ Run `python eda/eda.py` to regenerate all charts against live data:
 <img width="1350" height="900" alt="weekday_pattern" src="https://github.com/user-attachments/assets/e9e7026e-fd2f-4ada-bb39-5fd9363bdb7a" />
 
 
-
----
 
 ## 🔧 Feature Engineering
 
@@ -302,6 +301,9 @@ Built with Streamlit + Plotly, styled with a custom dark emerald/glassmorphism d
 - ℹ️ Full model transparency footer (which model won, its version, its test RMSE)
 
 ---
+<img width="951" height="440" alt="st1" src="https://github.com/user-attachments/assets/f91bdf24-704e-448f-8735-d5862dd11163" />
+<img width="946" height="441" alt="st2" src="https://github.com/user-attachments/assets/470480d1-c86d-422c-9900-42dbaf10f28d" />
+
 
 ## 🚨 Hazard Alerts
 
