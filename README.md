@@ -304,6 +304,7 @@ Built with Streamlit + Plotly, styled with a custom dark emerald/glassmorphism d
 ---
 <img width="951" height="440" alt="st1" src="https://github.com/user-attachments/assets/f91bdf24-704e-448f-8735-d5862dd11163" />
 <img width="946" height="441" alt="st2" src="https://github.com/user-attachments/assets/470480d1-c86d-422c-9900-42dbaf10f28d" />
+<img width="955" height="439" alt="image" src="https://github.com/user-attachments/assets/16c2e77e-0ab6-4bcc-99d9-d9e298c08b2e" />
 
 
 ## 🚨 Hazard Alerts
