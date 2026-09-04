@@ -50,7 +50,7 @@ AIR_QUALITY_BACKFILL_DAYS = 90
 # the most recent days. Staying a week behind "today" avoids that.
 WEATHER_ARCHIVE_LATENCY_DAYS = 6
 
-REQUEST_TIMEOUT_SECONDS = 200
+REQUEST_TIMEOUT_SECONDS = 500
 
 
 def fetch_historical_air_quality(lat: float, lon: float, start: date, end: date) -> pd.DataFrame:
