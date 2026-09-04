@@ -41,7 +41,7 @@ TARGET_HORIZONS_DAYS = {
 # trust as a real daily average (a missed cron run for 20 of 24 hours
 # shouldn't quietly become "today's AQI"). Such days are flagged NaN
 # rather than averaged over 2-3 lucky readings.
-MIN_HOURS_PER_VALID_DAY = 18
+MIN_HOURS_PER_VALID_DAY = 15
 
 
 # --------------------------------------------------------------------------
