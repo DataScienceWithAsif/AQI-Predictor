@@ -24,6 +24,7 @@ Run:
 
 import os
 import logging
+import time
 from datetime import date, timedelta
 
 import requests
@@ -51,6 +52,31 @@ AIR_QUALITY_BACKFILL_DAYS = 90
 WEATHER_ARCHIVE_LATENCY_DAYS = 6
 
 REQUEST_TIMEOUT_SECONDS = 500
+MAX_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 2
+
+
+def _get_with_retries(url: str, params: dict, source_name: str) -> requests.Response:
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            if attempt == MAX_RETRIES:
+                break
+            backoff_seconds = RETRY_BACKOFF_SECONDS ** attempt
+            logger.warning(
+                f"{source_name} request failed (attempt {attempt}/{MAX_RETRIES}): {e}. "
+                f"Retrying in {backoff_seconds}s..."
+            )
+            time.sleep(backoff_seconds)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"{source_name} request failed without an explicit exception.")
 
 
 def fetch_historical_air_quality(lat: float, lon: float, start: date, end: date) -> pd.DataFrame:
@@ -70,7 +96,7 @@ def fetch_historical_air_quality(lat: float, lon: float, start: date, end: date)
             f"don't try to stitch together a second, older window this way."
         )
 
-    resp = requests.get(
+    resp = _get_with_retries(
         "https://air-quality-api.open-meteo.com/v1/air-quality",
         params={
             "latitude": lat,
@@ -80,9 +106,8 @@ def fetch_historical_air_quality(lat: float, lon: float, start: date, end: date)
             "hourly": "pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,us_aqi",
             "timezone": "UTC",
         },
-        timeout=REQUEST_TIMEOUT_SECONDS,
+        source_name="Air quality API",
     )
-    resp.raise_for_status()
     hourly = resp.json()["hourly"]
 
     return pd.DataFrame({
@@ -98,7 +123,7 @@ def fetch_historical_air_quality(lat: float, lon: float, start: date, end: date)
 
 
 def fetch_historical_weather(lat: float, lon: float, start: date, end: date) -> pd.DataFrame:
-    resp = requests.get(
+    resp = _get_with_retries(
         "https://archive-api.open-meteo.com/v1/archive",
         params={
             "latitude": lat,
@@ -109,9 +134,8 @@ def fetch_historical_weather(lat: float, lon: float, start: date, end: date) -> 
             "wind_speed_unit": "ms",  # match the m/s units fetch.py gets live from OpenWeather
             "timezone": "UTC",
         },
-        timeout=REQUEST_TIMEOUT_SECONDS,
+        source_name="Weather archive API",
     )
-    resp.raise_for_status()
     hourly = resp.json()["hourly"]
 
     return pd.DataFrame({
