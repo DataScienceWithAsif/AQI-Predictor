@@ -13,7 +13,7 @@ import requests
 
 logger = logging.getLogger("feature_pipeline.geocoding")
 
-REQUEST_TIMEOUT_SECONDS = 20
+REQUEST_TIMEOUT_SECONDS = 200
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
 
