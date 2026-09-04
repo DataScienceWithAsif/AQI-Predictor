@@ -11,6 +11,7 @@ from datetime import date
 from unittest.mock import patch, MagicMock
 
 import pandas as pd
+import requests
 
 import backfill
 import features
@@ -70,6 +71,21 @@ def test_fetch_historical_weather_parses_correctly(mock_get):
     assert df.loc[0, "temp"] == 25.0
     assert df.loc[0, "wind_speed"] == 2.5
     print("PASS: fetch_historical_weather parses Open-Meteo JSON correctly")
+
+
+@patch("backfill.time.sleep")
+@patch("backfill.requests.get")
+def test_fetch_historical_air_quality_retries_on_timeout(mock_get, mock_sleep):
+    mock_get.side_effect = [
+        requests.exceptions.ReadTimeout("timed out"),
+        _mock_response(FAKE_AIR_QUALITY_JSON),
+    ]
+    df = backfill.fetch_historical_air_quality(31.5, 74.3, date(2026, 8, 1), date(2026, 8, 1))
+
+    assert len(df) == 3
+    assert mock_get.call_count == 2
+    mock_sleep.assert_called_once_with(backfill.RETRY_BACKOFF_SECONDS ** 1)
+    print("PASS: fetch_historical_air_quality retries after timeout and then succeeds")
 
 
 @patch("backfill.requests.get")
@@ -176,6 +192,7 @@ def test_fetch_historical_air_quality_rejects_too_old_start_date():
 if __name__ == "__main__":
     test_fetch_historical_air_quality_parses_correctly()
     test_fetch_historical_weather_parses_correctly()
+    test_fetch_historical_air_quality_retries_on_timeout()
     test_build_historical_raw_df_merges_to_exact_schema()
     test_build_historical_raw_df_feeds_final_features_without_error()
     test_geocode_city_parses_correctly()
