@@ -52,17 +52,6 @@ HORIZON_LABELS = {
 }
 CITIES = ["Islamabad", "Karachi", "Lahore", "Multan", "Peshawar"]
 
-# How many of the most recent daily-retrain versions to consider when
-# picking the "best" model per horizon. Comparing against EVERY version
-# ever registered (the previous behavior) lets one lucky early version
-# permanently block all later retrains from ever reaching production —
-# which is exactly what happened here (dashboard stuck on v17/v18 while
-# the registry was already at v22). Restricting the comparison to a
-# rolling recent window keeps "pick the best" while guaranteeing new
-# retrains (and anything new they bundle, like the SHAP plot) actually
-# surface within a few days.
-RECENT_VERSIONS_WINDOW = 5
-
 
 # --------------------------------------------------------------------------
 # AQI categorisation (US EPA breakpoints) — pure functions, unit tested
@@ -154,15 +143,14 @@ def load_models() -> dict:
             st.error(f"No registered model found for '{model_name}'. Has training_pipeline/train.py run yet?")
             st.stop()
 
-        # Only compare RMSE among the most recent N versions (see
-        # RECENT_VERSIONS_WINDOW above) instead of the model's entire
-        # history, so an old lucky version can't permanently block newer
-        # daily retrains from reaching the dashboard.
-        recent_versions = sorted(all_versions, key=lambda m: m.version, reverse=True)[:RECENT_VERSIONS_WINDOW]
-        hw_model = min(
-            recent_versions,
-            key=lambda m: m.training_metrics.get("rmse", float("inf")) if m.training_metrics else float("inf"),
-        )
+        # Always use the LATEST registered version, rather than competing
+        # on RMSE across historical versions. train.py already picks the
+        # best of 4 candidate models within each day's run, so the latest
+        # version already IS that day's best model — comparing across days
+        # on top of that only let an old lucky version block every later
+        # retrain forever (which is what caused both the stale-model bug
+        # and the missing SHAP chart: newer bundled artifacts never won).
+        hw_model = max(all_versions, key=lambda m: m.version)
 
         local_dir = hw_model.download()
         pipeline = joblib.load(Path(local_dir) / "model.pkl")
