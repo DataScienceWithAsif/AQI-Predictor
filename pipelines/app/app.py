@@ -52,6 +52,17 @@ HORIZON_LABELS = {
 }
 CITIES = ["Islamabad", "Karachi", "Lahore", "Multan", "Peshawar"]
 
+# How many of the most recent daily-retrain versions to consider when
+# picking the "best" model per horizon. Comparing against EVERY version
+# ever registered (the previous behavior) lets one lucky early version
+# permanently block all later retrains from ever reaching production —
+# which is exactly what happened here (dashboard stuck on v17/v18 while
+# the registry was already at v22). Restricting the comparison to a
+# rolling recent window keeps "pick the best" while guaranteeing new
+# retrains (and anything new they bundle, like the SHAP plot) actually
+# surface within a few days.
+RECENT_VERSIONS_WINDOW = 5
+
 
 # --------------------------------------------------------------------------
 # AQI categorisation (US EPA breakpoints) — pure functions, unit tested
@@ -137,10 +148,22 @@ def load_models() -> dict:
     models = {}
     for target_col in TARGET_COLUMNS:
         model_name = f"aqi_{target_col}_model"
-        hw_model = mr.get_best_model(name=model_name, metric="rmse", direction="min")
-        if hw_model is None:
+
+        all_versions = mr.get_models(name=model_name)
+        if not all_versions:
             st.error(f"No registered model found for '{model_name}'. Has training_pipeline/train.py run yet?")
             st.stop()
+
+        # Only compare RMSE among the most recent N versions (see
+        # RECENT_VERSIONS_WINDOW above) instead of the model's entire
+        # history, so an old lucky version can't permanently block newer
+        # daily retrains from reaching the dashboard.
+        recent_versions = sorted(all_versions, key=lambda m: m.version, reverse=True)[:RECENT_VERSIONS_WINDOW]
+        hw_model = min(
+            recent_versions,
+            key=lambda m: m.training_metrics.get("rmse", float("inf")) if m.training_metrics else float("inf"),
+        )
+
         local_dir = hw_model.download()
         pipeline = joblib.load(Path(local_dir) / "model.pkl")
         # train.py bundles the SHAP bar chart into the same model directory
