@@ -17,6 +17,7 @@ Run:
 
 import os
 import sys
+import shutil
 import logging
 import warnings
 from pathlib import Path
@@ -399,6 +400,18 @@ def register_model(project, result: dict) -> None:
     model_dir = MODEL_DIR / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(result["best_model"], model_dir / "model.pkl")
+
+    # Bundle the SHAP plot into the SAME directory that gets uploaded to the
+    # Model Registry (hw_model.save() below uploads everything in model_dir).
+    # This is what lets the deployed dashboard retrieve the plot later via
+    # hw_model.download() — the exact same call it already makes to fetch
+    # model.pkl — with no extra storage, no git commit step, and no change
+    # to how training_pipeline.yml runs in CI.
+    shap_plot_src = SHAP_DIR / f"shap_{target_col}.png"
+    if shap_plot_src.exists():
+        shutil.copy(shap_plot_src, model_dir / shap_plot_src.name)
+    else:
+        logger.warning(f"[{target_col}] No SHAP plot found at {shap_plot_src} — skipping bundling.")
 
     mr = project.get_model_registry()
     schema = ModelSchema(

@@ -143,11 +143,17 @@ def load_models() -> dict:
             st.stop()
         local_dir = hw_model.download()
         pipeline = joblib.load(Path(local_dir) / "model.pkl")
+        # train.py bundles the SHAP bar chart into the same model directory
+        # it registers (see training_pipeline/train.py: register_model()),
+        # so it comes down for free in the same download() call above —
+        # no separate storage or git-committed image needed.
+        shap_plot_path = Path(local_dir) / f"shap_{target_col}.png"
         models[target_col] = {
             "pipeline": pipeline,
             "version": hw_model.version,
             "metrics": hw_model.training_metrics,
             "description": hw_model.description or "",
+            "shap_plot_path": str(shap_plot_path) if shap_plot_path.exists() else None,
         }
     return models
 
@@ -482,11 +488,25 @@ Models used for this forecast:
     with st.expander("What drives this prediction?"):
         any_shown = False
         for t in TARGET_COLUMNS:
-            description = models[t].get("description", "")
-            if "Top SHAP features" in description:
-                shap_part = description.split("Top SHAP features:", 1)[1].strip().rstrip(".")
-                st.markdown(f"**{HORIZON_LABELS[t]}**: {shap_part}")
+            st.markdown(f"**{HORIZON_LABELS[t]}**")
+            shap_plot_path = models[t].get("shap_plot_path")
+            if shap_plot_path:
+                # Real per-horizon SHAP bar chart, bundled with the model
+                # at training time — this is the actual explainability
+                # artifact, not just a list of feature names.
+                st.image(shap_plot_path, use_container_width=True)
                 any_shown = True
+            else:
+                # Fallback for models registered before SHAP-plot bundling
+                # was added — keeps older registry versions from showing
+                # a blank expander until the next daily retrain runs.
+                description = models[t].get("description", "")
+                if "Top SHAP features" in description:
+                    shap_part = description.split("Top SHAP features:", 1)[1].strip().rstrip(".")
+                    st.caption(f"Top features: {shap_part}")
+                    any_shown = True
+                else:
+                    st.caption("SHAP plot not available yet for this model.")
         if not any_shown:
             st.caption(
                 "SHAP feature-importance data isn't available for the currently "
