@@ -286,8 +286,7 @@ section[data-testid="stSidebar"] div[data-testid="stSelectbox"] label p {
 .section-title { font-size: 1.3rem; font-weight: 700; color: #6ee7b7; margin: 1.8rem 0 0.7rem 0; }
 
 .forecast-card { text-align: center; }
-.forecast-label { font-size: 0.95rem; font-weight: 600; color: #d7f3e8; }
-.forecast-date { font-size: 0.8rem; color: #8fd9c4; margin-bottom: 0.7rem; }
+.forecast-label { font-size: 0.95rem; font-weight: 600; color: #d7f3e8; margin-bottom: 0.7rem; }
 .forecast-number { font-size: 2.6rem; font-weight: 800; line-height: 1; margin-bottom: 0.7rem; }
 
 .alert-card {
@@ -414,13 +413,11 @@ def main():
     for col, target_col in zip(cols, TARGET_COLUMNS):
         pred = predictions[target_col]
         label, color, emoji = categorize(pred)
-        forecast_date = feature_timestamp + pd.Timedelta(days=int(target_col[-2]))
         with col:
             st.markdown(
                 f"""
                 <div class="glass-card forecast-card">
                     <div class="forecast-label">{HORIZON_LABELS[target_col]}</div>
-                    <div class="forecast-date">{forecast_date.strftime('%a, %b %d')}</div>
                     <div class="forecast-number" style="color:{color};">{pred:.0f}</div>
                     {badge_html(label, color)}
                 </div>
